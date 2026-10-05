@@ -1,6 +1,18 @@
 # Secure Student API
 
-A FastAPI backend for student-management workflows with JWT authentication, role-based access control (RBAC), PostgreSQL persistence, and protected file uploads.
+A small student-management API built with FastAPI. It demonstrates account registration, login, protected routes, file uploads, and admin-only routes.
+
+## Start Here
+
+This project is a backend: it provides web addresses (API routes) that another program, Swagger UI, or PowerShell can call. It does not include a student-facing website.
+
+Here are a few terms used in this README:
+
+- **Route**: a URL and action, such as `GET /students/`.
+- **Access token (JWT)**: a signed string returned after login. Send it with protected requests to prove who you are.
+- **Role**: an account type. New accounts are `student`; some routes only allow `admin` accounts.
+- **401 Unauthorized**: the request has no valid login token.
+- **403 Forbidden**: the token is valid, but that account's role is not allowed to use the route.
 
 ## Features
 
@@ -13,14 +25,25 @@ A FastAPI backend for student-management workflows with JWT authentication, role
 - Automatic request and response logging
 - Interactive API documentation through Swagger UI and ReDoc
 
+## Use Case
+
+The basic workflow is:
+
+1. A student creates an account. The API saves a password hash, not the plain-text password, and assigns the `student` role.
+2. The student logs in. The API returns an access token.
+3. The student includes that token when calling a protected route or uploading a file.
+4. An administrator runs `python create_admin.py` to create or promote the `admin` account. Admin-only routes reject student accounts.
+
+This is a learning/demo project, not a complete student-records system. The protected `GET /students/` route currently returns the logged-in user's username and role. It does not implement full create, read, update, and delete (CRUD) operations for student records.
+
 ## Tech Stack
 
 - Python 3.12
 - FastAPI and Uvicorn
 - SQLAlchemy
 - PostgreSQL
-- Passlib with bcrypt
-- PyJWT
+- Passlib with bcrypt for password hashing
+- python-jose for JWT tokens
 - Pytest
 
 ## Project Structure
@@ -49,102 +72,110 @@ A FastAPI backend for student-management workflows with JWT authentication, role
 - PostgreSQL 12 or later
 - A PostgreSQL database and connection URL
 
-## Local Setup
+## Setup on Windows
 
-1. Create and activate a virtual environment:
+You need Python 3.12 or later and PostgreSQL installed and running. In PostgreSQL, create an empty database named `secure_student_db` (for example, with pgAdmin). Keep the database name, username, and password for the next step.
+
+Open PowerShell in this project folder, then create and activate a Python virtual environment:
 
 	```powershell
 	python -m venv venv
 	.\venv\Scripts\Activate.ps1
 	```
 
-	On macOS or Linux:
+If PowerShell blocks activation, run this once in that terminal and then activate the environment again:
 
-	```bash
-	python -m venv venv
-	source venv/bin/activate
+	```powershell
+	Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+	.\venv\Scripts\Activate.ps1
 	```
 
-2. Install dependencies:
+Install the libraries the project needs:
 
-	```bash
+	```powershell
 	pip install -r requirements.txt
 	```
 
-3. Create a `.env` file in the project root:
+Create a file named `.env` in the project folder. Replace the example database username and password with your PostgreSQL credentials. `SECRET_KEY` is used to sign login tokens; keep it private.
 
 	```dotenv
-	SECRET_KEY=replace-with-a-long-random-secret
-	DATABASE_URL=postgresql://username:password@localhost:5432/secure_student_db
+SECRET_KEY=replace-with-a-long-random-secret
+DATABASE_URL=postgresql://postgres:your-password@localhost:5432/secure_student_db
 	```
 
-	Use a strong, private value for `SECRET_KEY`. Do not commit `.env` or production credentials.
+Start the API:
 
-4. Start the API:
-
-	```bash
+	```powershell
 	uvicorn app.main:app --reload
 	```
 
-	The API is available at `http://127.0.0.1:8000`.
+Leave this PowerShell window open while using the API. The API address is `http://127.0.0.1:8000`; interactive documentation is at `http://127.0.0.1:8000/docs`.
 
 ## Docker
 
-Build and run the application container:
+Docker is an optional way to run the API in a container. Docker Desktop must be running, and PostgreSQL must still be available at the database address you provide. From PowerShell, build the image:
 
-```bash
+```powershell
 docker build -t secure-student-api .
-docker run --name secure-student-api -p 8000:8000 \
-  -e SECRET_KEY=replace-with-a-long-random-secret \
-  -e DATABASE_URL=postgresql://username:password@host.docker.internal:5432/secure_student_db \
+```
+
+Then run it, replacing the database username and password:
+
+```powershell
+docker run --name secure-student-api -p 8000:8000 `
+	-e SECRET_KEY=replace-with-a-long-random-secret `
+	-e DATABASE_URL=postgresql://postgres:your-password@host.docker.internal:5432/secure_student_db `
   secure-student-api
 ```
 
-The container expects PostgreSQL to be available through the `DATABASE_URL` environment variable. The Docker image creates `uploads/` and `logs/` inside the container; mount persistent volumes if those files must survive container replacement.
+The image creates `uploads/` and `logs/` inside the container. Files written there may be lost when the container is removed unless you configure persistent volumes.
 
 ## Create an Admin User
 
-After configuring the database, run:
+After the API environment and database are configured, open another PowerShell window in the project folder, activate the virtual environment, and run:
 
-```bash
+```powershell
+ .\venv\Scripts\Activate.ps1
 python create_admin.py
 ```
 
-This creates the `admin` account with the credentials defined by the script, or promotes an existing `admin` user. Change any default credentials immediately in a real deployment and consider replacing this one-off script with a managed provisioning process.
+This creates the `admin` account or changes an existing account named `admin` to the admin role. The script contains a development password; inspect `create_admin.py` and change that password before using the project beyond local learning.
 
-## API Usage
+## Try the API
 
-### Health check
+The commands below are for PowerShell. Keep the API running in its own terminal. First, create a student account; choose a username and email address that have not already been registered:
 
-```http
-GET /
+```powershell
+$registerBody = @{
+	username = "student1"
+	email = "student1@example.com"
+	password = "StrongPassword123!"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/auth/register" -ContentType "application/json" -Body $registerBody
 ```
 
-### Register a student
+Now log in with that account. The response includes an `access_token`:
 
-```bash
-curl -X POST http://127.0.0.1:8000/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username":"student1","email":"student1@example.com","password":"strong-password"}'
+```powershell
+$loginBody = @{
+	username = "student1"
+	password = "StrongPassword123!"
+} | ConvertTo-Json
+
+$login = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/auth/login" -ContentType "application/json" -Body $loginBody
+$token = $login.access_token
 ```
 
-New registrations receive the `student` role.
+Use that token to call the protected student route:
 
-### Log in
-
-```bash
-curl -X POST http://127.0.0.1:8000/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"student1","password":"strong-password"}'
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/students/" -Headers @{ Authorization = "Bearer $token" }
 ```
 
-The response contains an access token. Send it on protected requests as:
+The response should show the logged-in username and role. If you call this route without a token, `401 Unauthorized` is expected. If you use a student token on an admin-only route, `403 Forbidden` is expected. The login route accepts JSON, so use the commands above to obtain a token; `/docs` is useful for exploring the routes and request formats.
 
-```text
-Authorization: Bearer <access-token>
-```
-
-### Available routes
+### Routes in this project
 
 | Method | Route | Access |
 | --- | --- | --- |
@@ -166,15 +197,15 @@ When the server is running, open:
 - ReDoc: `http://127.0.0.1:8000/redoc`
 - OpenAPI schema: `http://127.0.0.1:8000/openapi.json`
 
-Use the **Authorize** button in Swagger UI and enter `Bearer <access-token>` to try protected routes.
+Swagger UI lets you inspect the routes and their request formats. Use the PowerShell login example above to call protected routes with a token.
 
 ## Run Tests
 
-```bash
+```powershell
 pytest
 ```
 
-The tests require a configured database and seeded users. The current test suite expects a student account with username `sriharini` and password `password123` to exist before the protected-route tests run.
+The tests use the configured database. The protected-route tests expect a student account with username `sriharini` and password `password123`. If it does not exist, start the API and register it through `POST /auth/register` (use an unused email address), then run `pytest`. If a test fails, read the error output; a missing database or account can cause failures even when the API starts.
 
 ## Security Notes
 
